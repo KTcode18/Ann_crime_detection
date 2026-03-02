@@ -33,6 +33,10 @@ with st.sidebar:
     epochs       = st.slider("Training epochs", 5, 50, 10, 5)
     batch_size   = st.selectbox("Batch size", [16, 32, 64, 128], index=1)
     run_training = st.button("🚀 Load Data & Train Model", use_container_width=True)
+    st.subheader("🧠 Model Architecture")
+    num_layers      = st.slider("Hidden layers", 1, 5, 2)
+    neurons         = st.slider("Neurons per layer", 16, 256, 64, step=16)
+    activation_fn   = st.selectbox("Activation function", ["relu", "tanh", "sigmoid", "elu", "selu"])
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 DATA_URL = (
@@ -121,18 +125,20 @@ def build_XY(_df):
 
 
 # ── ANN training (NOT cached – changes every run) ────────────────────────────
-def train_model(X_train, y_train, X_test, y_test, epochs, batch_size):
-    input_shape = (X_train.shape[1],)
-    model = keras.Sequential([
-        layers.Dense(64, activation='relu', input_shape=input_shape),
-        layers.Dense(32, activation='relu'),
-        layers.Dense(1,  activation='sigmoid'),
-    ])
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
+def train_model(X_train, y_train, X_test, y_test, epochs, batch_size, num_layers, neurons, activation_fn):
+    input_shape = (X_train.shape[1],)
+    
+    model_layers = [layers.Dense(neurons, activation=activation_fn, input_shape=input_shape)]
+    for _ in range(num_layers - 1):
+        model_layers.append(layers.Dense(neurons, activation=activation_fn))
+    model_layers.append(layers.Dense(1, activation='sigmoid'))  # output layer always sigmoid
+    
+    model = keras.Sequential(model_layers)
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     progress_bar = st.progress(0, text="Training ANN…")
     epoch_log    = []
-
+    
     class StreamlitCallback(keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             pct = int((epoch + 1) / epochs * 100)
@@ -266,7 +272,10 @@ if run_training:
 
     # ── 5. Model training ─────────────────────────────────────────────────────
     st.header("🧠 ANN Model Training")
-    model, history = train_model(X_train, y_train, X_test, y_test, epochs, batch_size)
+    model, history = train_model(
+    X_train, y_train, X_test, y_test,
+    epochs, batch_size, num_layers, neurons, activation_fn
+    )
 
     # Training curves
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
