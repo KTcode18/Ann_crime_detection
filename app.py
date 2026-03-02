@@ -346,6 +346,110 @@ if run_training:
 
     st.success("✅ Pipeline complete!")
 
+    st.divider()
+    st.header("🚨 Risk Insights")
+    
+    # Rebuild a results dataframe from the test set indices
+    results_df = X_test.copy()
+    results_df['Actual']    = y_test.values
+    results_df['Predicted'] = y_pred
+    results_df['Risk Prob'] = y_pred_proba
+    
+    # Re-attach City and Month from processed_df using the test indices
+    results_df['City']  = processed_df.loc[X_test.index, 'Month'].values   # placeholder — fix below
+    results_df['City']  = raw_df.loc[X_test.index, 'City'].values
+    results_df['Month'] = raw_df.loc[X_test.index, 'Time of Occurrence'].apply(
+        lambda x: pd.to_datetime(x, format='mixed', dayfirst=True).month
+    )
+    
+    col_city, col_month = st.columns(2)
+    
+    # ── High Risk Cities ──────────────────────────────────────────────────────────
+    with col_city:
+        st.subheader("🏙️ High Risk Cities")
+        city_risk = (
+            results_df[results_df['Predicted'] == 1]
+            .groupby('City')
+            .agg(High_Risk_Count=('Predicted', 'count'), Avg_Prob=('Risk Prob', 'mean'))
+            .sort_values('High_Risk_Count', ascending=False)
+            .reset_index()
+        )
+        fig, ax = plt.subplots(figsize=(8, 4))
+        sns.barplot(data=city_risk.head(10), x='City', y='High_Risk_Count',
+                    palette='Reds_r', ax=ax)
+        ax.set_title('Top 10 High Risk Cities (Predicted)')
+        ax.set_xlabel('City'); ax.set_ylabel('High Risk Incidents')
+        plt.xticks(rotation=45, ha='right'); plt.tight_layout()
+        st.pyplot(fig); plt.close()
+    
+    # ── High Risk Months ──────────────────────────────────────────────────────────
+    with col_month:
+        st.subheader("📅 High Risk Months")
+        month_names = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',
+                       7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'}
+        month_risk = (
+            results_df[results_df['Predicted'] == 1]
+            .groupby('Month')
+            .agg(High_Risk_Count=('Predicted', 'count'), Avg_Prob=('Risk Prob', 'mean'))
+            .reset_index()
+            .sort_values('Month')
+        )
+        month_risk['Month Name'] = month_risk['Month'].map(month_names)
+        fig, ax = plt.subplots(figsize=(8, 4))
+        sns.barplot(data=month_risk, x='Month Name', y='High_Risk_Count',
+                    palette='OrRd', ax=ax)
+        ax.set_title('High Risk Incidents by Month (Predicted)')
+        ax.set_xlabel('Month'); ax.set_ylabel('High Risk Incidents')
+        plt.tight_layout()
+        st.pyplot(fig); plt.close()
+    
+    # ── Risk Heatmap (City × Month) ───────────────────────────────────────────────
+    st.subheader("🗺️ Risk Heatmap — City × Month")
+    
+    heatmap_data = (
+        results_df.groupby(['City', 'Month'])['Risk Prob']
+        .mean()
+        .unstack(fill_value=0)
+    )
+    heatmap_data.columns = [month_names.get(c, c) for c in heatmap_data.columns]
+    
+    # Limit to top 15 cities by total predicted risk for readability
+    top_cities = (
+        results_df[results_df['Predicted'] == 1]
+        .groupby('City')['Predicted'].count()
+        .nlargest(15).index
+    )
+    heatmap_data = heatmap_data.loc[heatmap_data.index.isin(top_cities)]
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    sns.heatmap(
+        heatmap_data,
+        cmap='YlOrRd',
+        annot=True, fmt='.2f',
+        linewidths=0.4,
+        ax=ax,
+        cbar_kws={'label': 'Avg Risk Probability'}
+    )
+    ax.set_title('Average Predicted Risk Probability by City & Month')
+    ax.set_xlabel('Month'); ax.set_ylabel('City')
+    plt.tight_layout()
+    st.pyplot(fig); plt.close()
+    
+    # ── Summary Table ─────────────────────────────────────────────────────────────
+    with st.expander("📊 Full City Risk Summary Table"):
+        full_summary = (
+            results_df.groupby('City')
+            .agg(
+                Total_Incidents   = ('Predicted', 'count'),
+                High_Risk_Count   = ('Predicted', 'sum'),
+                Avg_Risk_Prob     = ('Risk Prob', 'mean')
+            )
+            .assign(High_Risk_Rate=lambda x: (x['High_Risk_Count'] / x['Total_Incidents'] * 100).round(1))
+            .sort_values('High_Risk_Rate', ascending=False)
+            .reset_index()
+        )
+        st.dataframe(full_summary, use_container_width=True)
+
 else:
     st.info(
         "👈 Adjust settings in the sidebar then click **Load Data & Train Model** to begin."
